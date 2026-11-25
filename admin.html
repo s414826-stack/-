@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>老師後台｜攝影教室器材管理</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+
+<script>
+  // ====== 請在此貼上你的 Google Apps Script 網頁應用程式網址 ======
+  const API_URL = "https://script.google.com/macros/s/AKfycbyuJrwdFh75-KG2BzqUqETcOLqQ9Yz3XjnGnlWFSpg_QU05zrofmNAuxRkwUnEPGREy/exec";
+</script>
+
+<!-- 登入畫面 -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
+  <div class="bg-white p-6 rounded-2xl shadow-md border border-slate-200 w-full max-w-sm space-y-4">
+    <h1 class="text-xl font-bold text-center">攝影教室後台管理</h1>
+    <input id="admin-pwd" type="password" placeholder="請輸入管理員密碼"
+      onkeydown="if(event.key==='Enter') doLogin()"
+      class="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    <button id="btn-login" onclick="doLogin()" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-2.5 rounded-xl text-sm font-semibold">登入後台</button>
+  </div>
+</div>
+
+<!-- 後台主畫面 -->
+<div id="admin-app" class="hidden">
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+      <div class="font-bold text-slate-900">攝影教室管理後台</div>
+      <nav class="flex gap-1 overflow-x-auto text-sm">
+        <button onclick="switchAdminTab('pending')" id="atab-pending" class="px-3 py-1.5 rounded-lg font-medium bg-blue-600 text-white whitespace-nowrap">
+          待審核 <span id="badge-pending" class="ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full hidden">0</span>
+        </button>
+        <button onclick="switchAdminTab('active')" id="atab-active" class="px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:bg-slate-100 whitespace-nowrap">借用中／待處理</button>
+        <button onclick="switchAdminTab('reports')" id="atab-reports" class="px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:bg-slate-100 whitespace-nowrap">
+          異常與回覆 <span id="badge-reports" class="ml-1 bg-amber-500 text-white text-xs px-1.5 py-0.5 rounded-full hidden">0</span>
+        </button>
+        <button onclick="switchAdminTab('inventory')" id="atab-inventory" class="px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:bg-slate-100 whitespace-nowrap">器材庫存</button>
+        <button onclick="switchAdminTab('history')" id="atab-history" class="px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:bg-slate-100 whitespace-nowrap">歷史紀錄</button>
+      </nav>
+      <div class="flex items-center gap-2 text-xs">
+        <span id="last-updated" class="hidden lg:inline text-slate-400"></span>
+        <button onclick="loadAdminData()" class="px-2.5 py-1.5 border rounded-lg hover:bg-slate-50">重新整理</button>
+        <button onclick="logout()" class="px-2.5 py-1.5 text-red-600 hover:bg-red-50 rounded-lg">登出</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 hidden px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium text-white"></div>
+
+  <main class="max-w-6xl mx-auto p-4">
+
+    <!-- 1. 待審核 -->
+    <section id="sec-pending">
+      <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+        <table class="w-full text-sm text-left">
+          <thead class="bg-slate-50 text-slate-500 border-b">
+            <tr><th class="p-3.5">申請人</th><th class="p-3.5">申請器材摘要</th><th class="p-3.5">學生期望時段</th><th class="p-3.5 text-right">操作</th></tr>
+          </thead>
+          <tbody id="tb-pending" class="divide-y"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 2. 借用中／今日待處理 -->
+    <section id="sec-active" class="hidden space-y-3">
+      <div class="flex gap-2 flex-wrap text-xs">
+        <button onclick="activeFilter='all';renderActive()" class="px-3 py-1.5 rounded-full bg-slate-900 text-white">全部進行中</button>
+        <button onclick="activeFilter='overdue';renderActive()" class="px-3 py-1.5 rounded-full bg-red-100 text-red-700 font-semibold">僅看已逾期</button>
+        <button onclick="activeFilter='borrowed';renderActive()" class="px-3 py-1.5 rounded-full bg-white border">已取件(借用中)</button>
+        <button onclick="activeFilter='wait_pickup';renderActive()" class="px-3 py-1.5 rounded-full bg-white border">待取件</button>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-sm">
+        <table class="w-full text-sm text-left">
+          <thead class="bg-slate-50 text-slate-500 border-b">
+            <tr><th class="p-3.5">單號／狀態</th><th class="p-3.5">申請人</th><th class="p-3.5">核發時段</th><th class="p-3.5">取件存證</th><th class="p-3.5 text-right">操作</th></tr>
+          </thead>
+          <tbody id="tb-active" class="divide-y"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 3. 異常與回覆 -->
+    <section id="sec-reports" class="hidden space-y-3">
+      <div id="reports-list" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </section>
+
+    <!-- 4. 器材庫存 -->
+    <section id="sec-inventory" class="hidden space-y-3">
+      <div class="flex justify-end">
+        <button onclick="openEqModal()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-xl">+ 新增器材</button>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-sm">
+        <table class="w-full text-sm text-left">
+          <thead class="bg-slate-50 text-slate-500 border-b">
+            <tr><th class="p-3.5">器材名稱</th><th class="p-3.5">分類</th><th class="p-3.5">可借／總數</th><th class="p-3.5">狀態切換</th><th class="p-3.5 text-right">操作</th></tr>
+          </thead>
+          <tbody id="tb-inventory" class="divide-y"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 5. 歷史紀錄 -->
+    <section id="sec-history" class="hidden space-y-3">
+      <div class="flex justify-between items-center gap-3 flex-wrap">
+        <input id="hist-search" oninput="renderHistory()" type="text" placeholder="搜尋姓名、學號或器材..." class="px-3 py-2 text-sm border rounded-xl bg-white w-64" />
+        <a id="sheet-link" href="#" target="_blank" class="px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-xl">開啟 Google 試算表（匯出報表）</a>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-sm">
+        <table class="w-full text-sm text-left">
+          <thead class="bg-slate-50 text-slate-500 border-b">
+            <tr><th class="p-3.5">單號／日期</th><th class="p-3.5">申請人</th><th class="p-3.5">器材</th><th class="p-3.5">最終狀態</th><th class="p-3.5 text-right">存證照</th></tr>
+          </thead>
+          <tbody id="tb-history" class="divide-y"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 右側審核抽屜面板 -->
+<div id="review-drawer" class="hidden fixed inset-0 bg-black/40 z-50 flex justify-end">
+  <div class="bg-white w-full max-w-md h-full overflow-y-auto p-6 shadow-2xl space-y-5">
+    <div class="flex justify-between items-center border-b pb-3">
+      <h3 class="font-bold text-lg">審核申請與核發時段</h3>
+      <button onclick="document.getElementById('review-drawer').classList.add('hidden')" class="text-2xl text-slate-400">&times;</button>
+    </div>
+    <div id="rev-info" class="text-sm space-y-1.5 bg-slate-50 p-3.5 rounded-xl"></div>
+    <div id="rev-stock" class="text-sm space-y-1.5"></div>
+
+    <div class="space-y-3 border-t pt-4 text-sm">
+      <h4 class="font-bold text-green-700">核准設定</h4>
+      <div><label class="block text-xs text-slate-500 mb-1">核發取件時間 *</label><input id="rev-pickup" type="datetime-local" class="w-full px-3 py-2 border rounded-xl" /></div>
+      <div><label class="block text-xs text-slate-500 mb-1">規定歸還期限 *</label><input id="rev-return" type="datetime-local" class="w-full px-3 py-2 border rounded-xl" /></div>
+      <div><label class="block text-xs text-slate-500 mb-1">配發機號／給學生的備註</label><input id="rev-note" type="text" placeholder="例如：配發 90D-2號，請自備記憶卡" class="w-full px-3 py-2 border rounded-xl" /></div>
+      <button id="btn-approve" onclick="submitApprove()" class="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl">核准並發送 Gmail 通知</button>
+    </div>
+
+    <div class="space-y-2.5 border-t pt-4 text-sm">
+      <h4 class="font-bold text-red-600">或駁回此申請</h4>
+      <div class="flex flex-wrap gap-1.5 text-xs">
+        <button onclick="setRejectReason('器材維修中暫停出借')" class="px-2.5 py-1 bg-slate-100 rounded-lg hover:bg-slate-200">器材維修中</button>
+        <button onclick="setRejectReason('該時段器材已被預約')" class="px-2.5 py-1 bg-slate-100 rounded-lg hover:bg-slate-200">時段已被預約</button>
+        <button onclick="setRejectReason('教室當日有課不開放')" class="px-2.5 py-1 bg-slate-100 rounded-lg hover:bg-slate-200">教室有課不開放</button>
+        <button onclick="setRejectReason('用途或資料填寫不完整')" class="px-2.5 py-1 bg-slate-100 rounded-lg hover:bg-slate-200">資料不完整</button>
+      </div>
+      <input id="rev-reject-reason" type="text" placeholder="輸入駁回原因..." class="w-full px-3 py-2 border rounded-xl" />
+      <button id="btn-reject" onclick="submitReject()" class="w-full py-2 border border-red-500 text-red-600 hover:bg-red-50 font-semibold rounded-xl">確認駁回並寄信</button>
+    </div>
+  </div>
+</div>
+
+<!-- 照片左右對照視窗 -->
+<div id="photo-modal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+  <div class="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl p-5">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="font-bold text-lg">取件原貌 vs. 歸還／異常照片對照</h3>
+      <button onclick="document.getElementById('photo-modal').classList.add('hidden')" class="text-2xl text-slate-400">&times;</button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div><h4 class="font-semibold text-sm text-blue-700 mb-2">取件前原始存證照</h4><div id="pm-left" class="space-y-2"></div></div>
+      <div><h4 class="font-semibold text-sm text-red-700 mb-2">歸還／異常回報照片</h4><div id="pm-right" class="space-y-2"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 新增／編輯器材 Modal -->
+<div id="eq-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white w-full max-w-md rounded-2xl p-5 space-y-3 text-sm">
+    <h3 id="eq-modal-title" class="font-bold text-lg">新增器材</h3>
+    <input id="eq-id" type="hidden" />
+    <div><label class="block text-xs mb-1">器材名稱 *</label><input id="eq-name" class="w-full px-3 py-2 border rounded-xl" /></div>
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="block text-xs mb-1">分類 *</label>
+        <select id="eq-cat" class="w-full px-3 py-2 border rounded-xl bg-white">
+          <option>相機機身</option><option>鏡頭</option><option>腳架</option><option>棚燈</option><option>收音與配件</option>
+        </select>
+      </div>
+      <div><label class="block text-xs mb-1">總數量 *</label><input id="eq-qty" type="number" min="1" value="1" class="w-full px-3 py-2 border rounded-xl" /></div>
+    </div>
+    <div><label class="block text-xs mb-1">配件說明／備註</label><input id="eq-note" placeholder="例如：含電池1顆、鏡頭蓋" class="w-full px-3 py-2 border rounded-xl" /></div>
+    <div><label class="block text-xs mb-1">器材展示圖（選填，直接上傳自動存 Drive）</label><input id="eq-file" type="file" accept="image/*" class="text-xs w-full" /></div>
+    <div class="flex gap-2 pt-2">
+      <button onclick="document.getElementById('eq-modal').classList.add('hidden')" class="w-1/3 py-2 border rounded-xl">取消</button>
+      <button id="btn-save-eq" onclick="saveEquipment()" class="w-2/3 py-2 bg-blue-600 text-white font-semibold rounded-xl">儲存器材</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let adminPassword = sessionStorage.getItem('cam_admin_pwd') || '';
+  let db = { equipment: [], orders: [], reports: [], sheet_url: '#' };
+  let activeFilter = 'all';
+  let currentReviewOrder = null;
+
+  window.onload = () => { if (adminPassword) loadAdminData(true); };
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium text-white ${isError ? 'bg-red-600' : 'bg-slate-900'}`;
+    t.classList.remove('hidden');
+    setTimeout(() => t.classList.add('hidden'), 3000);
+  }
+
+  async function apiPost(payload) {
+    payload.password = adminPassword;
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '操作失敗');
+    return json.data;
+  }
+
+  async function doLogin() {
+    adminPassword = document.getElementById('admin-pwd').value;
+    const btn = document.getElementById('btn-login');
+    btn.disabled = true; btn.textContent = '驗證中...';
+    try {
+      await apiPost({ action: 'adminLogin' });
+      sessionStorage.setItem('cam_admin_pwd', adminPassword);
+      loadAdminData(true);
+    } catch (e) {
+      alert(e.message);
+      adminPassword = '';
+    } finally {
+      btn.disabled = false; btn.textContent = '登入後台';
+    }
+  }
+
+  function logout() {
+    sessionStorage.removeItem('cam_admin_pwd');
+    location.reload();
+  }
+
+  async function loadAdminData(showApp = false) {
+    try {
+      db = await apiPost({ action: 'getAdminData' });
+      if (showApp) {
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('admin-app').classList.remove('hidden');
+      }
+      document.getElementById('sheet-link').href = db.sheet_url;
+      document.getElementById('last-updated').textContent = '上次更新 ' + new Date().toTimeString().slice(0, 5);
+      renderAll();
+    } catch (e) {
+      showToast(e.message, true);
+    }
+  }
+
+  function switchAdminTab(tab) {
+    ['pending', 'active', 'reports', 'inventory', 'history'].forEach(t => {
+      document.getElementById('sec-' + t).classList.toggle('hidden', t !== tab);
+      document.getElementById('atab-' + t).className = t === tab
+        ? 'px-3 py-1.5 rounded-lg font-medium bg-blue-600 text-white whitespace-nowrap'
+        : 'px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:bg-slate-100 whitespace-nowrap';
+    });
+  }
+
+  function renderAll() {
+    renderPending();
+    renderActive();
+    renderReports();
+    renderInventory();
+    renderHistory();
+  }
+
+  function renderPending() {
+    const list = db.orders.filter(o => o.status === '待審核');
+    const b = document.getElementById('badge-pending');
+    b.textContent = list.length; b.classList.toggle('hidden', list.length === 0);
+
+    document.getElementById('tb-pending').innerHTML = list.length ? list.map(o => `
+      <tr class="hover:bg-slate-50">
+        <td class="p-3.5"><div class="font-bold">${o.class_name} ${o.student_name}</div><div class="text-xs text-slate-400">${o.created_at}</div></td>
+        <td class="p-3.5">${o.items_summary}</td>
+        <td class="p-3.5 text-slate-600">${o.wish_time}</td>
+        <td class="p-3.5 text-right"><button onclick="openReview('${o.order_id}')" class="px-3.5 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold">檢視並審核</button></td>
+      </tr>`).join('') : `<tr><td colspan="4" class="p-10 text-center text-slate-400">太棒了！目前沒有待審核的申請</td></tr>`;
+  }
+
+  function openReview(orderId) {
+    currentReviewOrder = db.orders.find(o => o.order_id === orderId);
+    const o = currentReviewOrder;
+    document.getElementById('rev-info').innerHTML = `
+      <p><b>單號：</b>${o.order_id}</p>
+      <p><b>申請人：</b>${o.class_name} ${o.student_name}（${o.student_id}）</p>
+      <p><b>聯絡：</b>${o.phone} / ${o.email}</p>
+      <p><b>用途：</b>${o.purpose}</p>
+      <p><b>希望時段：</b>${o.wish_time}</p>`;
+
+    const items = JSON.parse(o.items_json || '[]');
+    document.getElementById('rev-stock').innerHTML = '<p class="font-bold">申請器材與即時庫存：</p>' + items.map(it => {
+      const eq = db.equipment.find(e => e.id === it.id);
+      const avail = eq ? eq.available_qty : 0;
+      return `<div class="flex justify-between p-2 rounded-lg ${avail < it.qty ? 'bg-red-50 text-red-700' : 'bg-slate-50'}">
+        <span>${it.name} <b>x${it.qty}</b></span><span class="text-xs">目前剩餘：${avail}</span></div>`;
+    }).join('');
+
+    document.getElementById('rev-pickup').value = '';
+    document.getElementById('rev-return').value = '';
+    document.getElementById('rev-note').value = '';
+    document.getElementById('rev-reject-reason').value = '';
+    document.getElementById('review-drawer').classList.remove('hidden');
+  }
+
+  function setRejectReason(txt) { document.getElementById('rev-reject-reason').value = txt; }
+
+  async function submitApprove() {
+    const pTime = document.getElementById('rev-pickup').value.replace('T', ' ');
+    const rTime = document.getElementById('rev-return').value.replace('T', ' ');
+    if (!pTime || !rTime) return showToast('請設定核發取件與歸還時間', true);
+    const btn = document.getElementById('btn-approve');
+    btn.disabled = true; btn.textContent = '核准並寄信中...';
+    try {
+      await apiPost({ action: 'approveOrder', order_id: currentReviewOrder.order_id, pickup_time: pTime, return_time: rTime, teacher_note: document.getElementById('rev-note').value });
+      document.getElementById('review-drawer').classList.add('hidden');
+      showToast('已核准並發送 Gmail 給學生');
+      loadAdminData();
+    } catch (e) { showToast(e.message, true); }
+    finally { btn.disabled = false; btn.textContent = '核准並發送 Gmail 通知'; }
+  }
+
+  async function submitReject() {
+    const reason = document.getElementById('rev-reject-reason').value.trim();
+    if (!reason) return showToast('請輸入或點選駁回原因', true);
+    const btn = document.getElementById('btn-reject');
+    btn.disabled = true; btn.textContent = '處理中...';
+    try {
+      await apiPost({ action: 'rejectOrder', order_id: currentReviewOrder.order_id, reject_reason: reason });
+      document.getElementById('review-drawer').classList.add('hidden');
+      showToast('已駁回並通知學生');
+      loadAdminData();
+    } catch (e) { showToast(e.message, true); }
+    finally { btn.disabled = false; btn.textContent = '確認駁回並寄信'; }
+  }
+
+  function renderActive() {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    let list = db.orders.filter(o => ['已核發待確認', '預約成立', '借用中'].includes(o.status));
+    if (activeFilter === 'overdue') list = list.filter(o => o.status === '借用中' && String(o.return_time).slice(0, 10) < todayStr);
+    if (activeFilter === 'borrowed') list = list.filter(o => o.status === '借用中');
+    if (activeFilter === 'wait_pickup') list = list.filter(o => o.status === '預約成立' || o.status === '已核發待確認');
+
+    document.getElementById('tb-active').innerHTML = list.length ? list.map(o => {
+      const isOverdue = o.status === '借用中' && o.return_time && String(o.return_time).slice(0, 10) < todayStr;
+      const pkPhotos = JSON.parse(o.pickup_photos_json || '[]');
+      return `
+        <tr class="${isOverdue ? 'bg-red-50/60' : ''}">
+          <td class="p-3.5"><div class="text-xs text-slate-400">${o.order_id}</div>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full ${isOverdue ? 'bg-red-600 text-white' : 'bg-blue-100 text-blue-700'}">${isOverdue ? '已逾期' : o.status}</span></td>
+          <td class="p-3.5"><div class="font-bold">${o.class_name} ${o.student_name}</div><div class="text-xs text-slate-500">${o.items_summary}</div></td>
+          <td class="p-3.5 text-xs"><div>取：${o.pickup_time}</div><div>還：${o.return_time}</div></td>
+          <td class="p-3.5 text-xs">${pkPhotos.length ? '<span class="text-green-600 font-semibold">已拍照 (' + pkPhotos.length + ')</span>' : '<span class="text-slate-400">尚未拍照</span>'}</td>
+          <td class="p-3.5 text-right space-x-1 whitespace-nowrap">
+            <button onclick='openPhotoModal(${JSON.stringify(o.pickup_photos_json||"[]")}, ${JSON.stringify(o.return_photos_json||"[]")})' class="px-2.5 py-1 border rounded-lg text-xs">看照片</button>
+            ${isOverdue ? `<button onclick="sendReminder('${o.order_id}')" class="px-2.5 py-1 bg-amber-500 text-white rounded-lg text-xs">發信催還</button>` : ''}
+            ${o.status === '借用中' ? `<button onclick="markReturned('${o.order_id}')" class="px-2.5 py-1 bg-green-600 text-white rounded-lg text-xs font-semibold">確認歸還結案</button>` : ''}
+          </td>
+        </tr>`;
+    }).join('') : `<tr><td colspan="5" class="p-10 text-center text-slate-400">目前沒有符合條件的進行中借用單</td></tr>`;
+  }
+
+  async function markReturned(oid) {
+    if (!confirm('確認已現場點收器材無誤並結案？')) return;
+    await apiPost({ action: 'markReturned', order_id: oid });
+    showToast('已結案歸檔，庫存已加回');
+    loadAdminData();
+  }
+
+  async function sendReminder(oid) {
+    await apiPost({ action: 'sendOverdueReminder', order_id: oid });
+    showToast('已寄出催還 Gmail');
+  }
+
+  function renderReports() {
+    const pending = db.reports.filter(r => r.status === '待處理');
+    const b = document.getElementById('badge-reports');
+    b.textContent = pending.length; b.classList.toggle('hidden', pending.length === 0);
+
+    document.getElementById('reports-list').innerHTML = db.reports.length ? db.reports.map(r => `
+      <div class="bg-white p-4 rounded-2xl border ${r.status === '待處理' ? 'border-red-300' : 'border-slate-200 opacity-60'} space-y-2.5 shadow-sm">
+        <div class="flex justify-between items-start">
+          <div><span class="text-xs text-slate-400">${r.created_at} | ${r.order_id}</span><h4 class="font-bold text-sm">${r.items_summary}</h4></div>
+          <span class="text-xs px-2 py-0.5 rounded-full ${r.status === '待處理' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}">${r.status}</span>
+        </div>
+        <p class="text-xs text-slate-600">回報人：${r.student_name} (${r.student_id})</p>
+        <p class="text-sm bg-red-50 p-2.5 rounded-xl text-red-900">${r.description}</p>
+        <div class="flex gap-2 pt-1">
+          <button onclick='openPhotoModal(${JSON.stringify(r.pickup_photos_json||"[]")}, ${JSON.stringify(r.issue_photos_json||"[]")})' class="flex-1 py-1.5 bg-slate-900 text-white rounded-xl text-xs font-semibold">照片左右對照</button>
+          ${r.status === '待處理' ? `<button onclick="resolveReport('${r.report_id}')" class="px-3 py-1.5 border border-green-600 text-green-700 rounded-xl text-xs font-semibold">標記已處理</button>` : ''}
+        </div>
+      </div>`).join('') : `<div class="col-span-2 text-center py-12 text-slate-400">目前沒有任何異常回報</div>`;
+  }
+
+  async function resolveReport(rid) {
+    await apiPost({ action: 'resolveReport', report_id: rid });
+    showToast('異常回報已結案');
+    loadAdminData();
+  }
+
+  function openPhotoModal(leftJson, rightJson) {
+    const left = typeof leftJson === 'string' ? JSON.parse(leftJson || '[]') : leftJson;
+    const right = typeof rightJson === 'string' ? JSON.parse(rightJson || '[]') : rightJson;
+    document.getElementById('pm-left').innerHTML = left.length ? left.map(u => `<a href="${u}" target="_blank"><img src="${u}" class="w-full rounded-xl border" /></a>`).join('') : '<p class="text-xs text-slate-400">無照片</p>';
+    document.getElementById('pm-right').innerHTML = right.length ? right.map(u => `<a href="${u}" target="_blank"><img src="${u}" class="w-full rounded-xl border" /></a>`).join('') : '<p class="text-xs text-slate-400">無照片</p>';
+    document.getElementById('photo-modal').classList.remove('hidden');
+  }
+
+  function renderInventory() {
+    document.getElementById('tb-inventory').innerHTML = db.equipment.map(e => `
+      <tr>
+        <td class="p-3.5 font-bold">${e.name}<div class="text-xs text-slate-400 font-normal">${e.note || ''}</div></td>
+        <td class="p-3.5 text-xs">${e.category}</td>
+        <td class="p-3.5 font-semibold">${e.available_qty} / ${e.total_qty}</td>
+        <td class="p-3.5">
+          <button onclick="toggleEqStatus('${e.id}')" class="px-3 py-1 rounded-full text-xs font-semibold ${e.status === '開放' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}">
+            ${e.status === '開放' ? '開放預約中' : '維修下架中'}
+          </button>
+        </td>
+        <td class="p-3.5 text-right space-x-2 text-xs">
+          <button onclick='openEqModal(${JSON.stringify(e)})' class="text-blue-600 font-semibold">編輯</button>
+          <button onclick="deleteEq('${e.id}')" class="text-red-500">刪除</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  function openEqModal(eq = null) {
+    document.getElementById('eq-modal-title').textContent = eq ? '編輯器材' : '新增器材';
+    document.getElementById('eq-id').value = eq ? eq.id : '';
+    document.getElementById('eq-name').value = eq ? eq.name : '';
+    document.getElementById('eq-cat').value = eq ? eq.category : '相機機身';
+    document.getElementById('eq-qty').value = eq ? eq.total_qty : 1;
+    document.getElementById('eq-note').value = eq ? (eq.note || '') : '';
+    document.getElementById('eq-file').value = '';
+    document.getElementById('eq-modal').classList.remove('hidden');
+  }
+
+  async function saveEquipment() {
+    const name = document.getElementById('eq-name').value.trim();
+    if (!name) return showToast('請輸入器材名稱', true);
+    const btn = document.getElementById('btn-save-eq');
+    btn.disabled = true; btn.textContent = '儲存中...';
+
+    let img_base64 = '';
+    const file = document.getElementById('eq-file').files[0];
+    if (file) {
+      img_base64 = await new Promise(res => {
+        const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file);
+      });
+    }
+    const id = document.getElementById('eq-id').value;
+    const oldEq = db.equipment.find(e => e.id === id);
+
+    try {
+      await apiPost({
+        action: 'saveEquipment',
+        id, name,
+        category: document.getElementById('eq-cat').value,
+        total_qty: document.getElementById('eq-qty').value,
+        note: document.getElementById('eq-note').value,
+        img_url: oldEq ? oldEq.img_url : '',
+        img_base64
+      });
+      document.getElementById('eq-modal').classList.add('hidden');
+      showToast('器材已儲存');
+      loadAdminData();
+    } catch (e) { showToast(e.message, true); }
+    finally { btn.disabled = false; btn.textContent = '儲存器材'; }
+  }
+
+  async function toggleEqStatus(id) {
+    await apiPost({ action: 'toggleEquipmentStatus', id });
+    showToast('器材狀態已切換');
+    loadAdminData();
+  }
+
+  async function deleteEq(id) {
+    if (!confirm('確定要刪除這項器材嗎？')) return;
+    await apiPost({ action: 'deleteEquipment', id });
+    showToast('已刪除');
+    loadAdminData();
+  }
+
+  function renderHistory() {
+    const kw = document.getElementById('hist-search').value.trim().toLowerCase();
+    const list = db.orders.filter(o => ['已歸還', '已駁回', '已取消'].includes(o.status) &&
+      (!kw || `${o.student_name}${o.student_id}${o.items_summary}`.toLowerCase().includes(kw)));
+
+    document.getElementById('tb-history').innerHTML = list.length ? list.map(o => `
+      <tr>
+        <td class="p-3.5 text-xs"><div class="font-medium">${o.order_id}</div><div class="text-slate-400">${o.created_at}</div></td>
+        <td class="p-3.5">${o.class_name} ${o.student_name}</td>
+        <td class="p-3.5 text-xs">${o.items_summary}</td>
+        <td class="p-3.5 text-xs font-semibold">${o.status}</td>
+        <td class="p-3.5 text-right"><button onclick='openPhotoModal(${JSON.stringify(o.pickup_photos_json||"[]")}, ${JSON.stringify(o.return_photos_json||"[]")})' class="px-2.5 py-1 border rounded-lg text-xs">檢視照片</button></td>
+      </tr>`).join('') : `<tr><td colspan="5" class="p-10 text-center text-slate-400">尚無歷史紀錄</td></tr>`;
+  }
+</script>
+</body>
+</html>
